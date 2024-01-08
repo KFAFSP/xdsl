@@ -111,6 +111,11 @@ class Parser(AttrParser):
     def parse_module(self, allow_implicit_module: bool = True) -> ModuleOp:
         module_op: Operation
 
+        # KFAF: We're gonna accept a preamble at this point, which is a list
+        #       of type and attribute aliases.
+        while self.parse_optional_alias() is not None:
+            pass
+
         if not allow_implicit_module:
             parsed_op = self.parse_optional_operation()
 
@@ -409,6 +414,17 @@ class Parser(AttrParser):
         The contents will be parsed by a user-defined parser, or by a generic parser
         if the dialect attribute/type is not registered.
         """
+
+        # KFAF: Side-step the entire attribute class lookup by checking against
+        #       known aliases. This will not produce good error messages if an
+        #       unknown alias name is used, but works if the input is well-
+        #       formed.
+        if "." not in attr_name:
+            lookup = self.type_aliases if is_type else self.attr_aliases
+            alias = lookup.get(attr_name, None)
+            if alias is not None:
+                return alias
+
         attr_def = self.ctx.get_optional_attr(
             attr_name,
             create_unregistered_as_type=is_type,
