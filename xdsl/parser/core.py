@@ -109,6 +109,11 @@ class Parser(AttrParser):
     def parse_module(self, allow_implicit_module: bool = True) -> ModuleOp:
         module_op: Operation
 
+        # KFAF: We're gonna accept a preamble at this point, which is a list
+        #       of type and attribute aliases.
+        while self.parse_optional_alias() is not None:
+            pass
+
         if not allow_implicit_module:
             parsed_op = self.parse_optional_operation()
 

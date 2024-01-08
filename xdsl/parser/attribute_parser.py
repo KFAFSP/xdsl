@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, NoReturn, cast
 
 import xdsl.parser as affine_parser
@@ -75,6 +75,37 @@ class AttrParser(BaseParser):
     """
 
     ctx: MLContext
+
+    # KFAF: The attribute parser should be able to handle aliases of both types
+    #       and attributes centrally.
+    type_aliases: dict[str, Attribute] = field(default_factory=lambda: dict())
+    attr_aliases: dict[str, Attribute] = field(default_factory=lambda: dict())
+
+    def parse_optional_alias(self) -> Attribute | None:
+        if (
+            token := self._parse_optional_token(Token.Kind.EXCLAMATION_IDENT)
+        ) is not None:
+            return self._parse_alias(token.text[1:], True)
+        if (
+            token := self._parse_optional_token(Token.Kind.HASH_IDENT)
+        ) is not None:
+            return self._parse_alias(token.text[1:], False)
+        return None
+
+    def _parse_alias(self, attr_or_dialect_name: str, is_type: bool = True) -> Attribute:
+        if '.' in attr_or_dialect_name:
+            self.raise_error(f"Invalid alias name '{attr_or_dialect_name}'")
+
+        self.parse_punctuation('=')
+
+        if is_type:
+            attr = self.parse_type()
+            self.type_aliases[attr_or_dialect_name] = attr
+        else:
+            attr = self.parse_attribute()
+            self.attr_aliases[attr_or_dialect_name] = attr
+
+        return attr
 
     def parse_optional_type(self) -> Attribute | None:
         """
@@ -244,7 +275,16 @@ class AttrParser(BaseParser):
         is_opaque = "." not in attr_or_dialect_name
         starting_opaque_pos = None
         if is_opaque:
-            self.parse_punctuation("<")
+            # KFAF: We also want to handle aliases here. We detect them by the
+            #       absence of the opening '<' delimiter.
+            if self.parse_optional_punctuation("<") is None:
+                lookup = self.type_aliases if is_type else self.attr_aliases
+                attr = lookup.get(attr_or_dialect_name, None)
+                if attr is None:
+                    kind = "type" if is_type else "attribute"
+                    self.raise_error(f"unknown {kind} alias '{attr_or_dialect_name}'")
+                return attr
+
             attr_name_token = self._parse_token(
                 Token.Kind.BARE_IDENT, "Expected attribute name."
             )
